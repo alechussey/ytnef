@@ -1,0 +1,17 @@
+[package]
+name = "ytnef"
+version = "0.1.2"
+authors = ["Alec Hussey <alec.hussey@madsoft.org>"]
+license = "MIT"
+description = "A Rust binding for libytnef. A C library for parsing the TNEF file format used by Microsoft Outlook and Exchange Server."
+keywords = ["ytnef","binding"]
+categories = ["api-bindings","parsing"]
+homepage = "https://github.com/alechussey/ytnef"
+documentation = "https://docs.rs/crate/ytnef"
+repository = "https://github.com/alechussey/ytnef.git"
+edition = "2018"
+
+[dependencies]
+chrono = "0.4"
+lazy_static = "1.4"
+ytnef_sys = "0.1"
