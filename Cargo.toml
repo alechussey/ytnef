@@ -1,6 +1,6 @@
 [package]
 name = "ytnef"
-version = "0.2"
+version = "0.2.0"
 authors = ["Alec Hussey <alec.hussey@madsoft.org>"]
 license = "MIT"
 description = "A Rust binding for libytnef. A C library for parsing the TNEF file format used by Microsoft Outlook and Exchange Server."
