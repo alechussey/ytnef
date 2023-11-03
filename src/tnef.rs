@@ -3,7 +3,7 @@ use std::fmt;
 use std::io::Read;
 use std::ops::Drop;
 use std::ffi::CString;
-use std::convert::From;
+use std::convert::{From, TryFrom};
 use std::mem::MaybeUninit;
 use std::os::raw::{c_int, c_void};
 use chrono::NaiveDateTime;
@@ -59,6 +59,172 @@ impl fmt::Display for TNEFError {
 
 pub type TNEFResult<T> = Result<T, TNEFError>;
 
+pub struct TNEFAttachmentRenderData {
+	pub attach_type: u16,
+	pub position: u32,
+	pub width: u16,
+	pub height: u16,
+	pub flags: u32
+}
+
+// I wasn't sure what to do with the linked-list pointers used in this structure.
+// I tried the Box<T> method and realized that wouldn't work because you can't
+// drop the value since drop() borrows self and you can't mutably borrow the inner
+// value from the box. Just decided to copy the structures instead.
+pub struct TNEFAttachment {
+	inner: ytnef_sys::Attachment
+}
+
+impl Default for TNEFAttachment {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
+impl TNEFAttachment {
+	pub fn new() -> Self {
+		unsafe {
+			let mut inner = MaybeUninit::<ytnef_sys::Attachment>::zeroed();
+			ytnef_sys::TNEFInitAttachment(inner.as_mut_ptr());
+			Self { inner: inner.assume_init() }
+		}
+	}
+
+	/// # Safety
+	///
+	/// 'raw' must be a non-NULL initialized Attachment object. Only pass pointers returned by the
+	/// ytnef_sys API to this function.
+	pub unsafe fn from_raw(raw: *mut ytnef_sys::Attachment) -> Self {
+		Self { inner: raw.read() }
+	}
+
+	pub fn date(&self) -> NaiveDateTime {
+		datetime_from_dtr(self.inner.Date)
+	}
+
+	pub fn title(&self) -> Option<String> {
+		string_from_varlen(self.inner.Title)
+	}
+
+	pub fn create_date(&self) -> NaiveDateTime {
+		datetime_from_dtr(self.inner.CreateDate)
+	}
+
+	pub fn modify_date(&self) -> NaiveDateTime {
+		datetime_from_dtr(self.inner.ModifyDate)
+	}
+
+	pub fn transport_filename(&self) -> Option<String> {
+		string_from_varlen(self.inner.TransportFilename)
+	}
+
+	pub fn render_data(&self) -> TNEFAttachmentRenderData {
+		TNEFAttachmentRenderData {
+			attach_type: self.inner.RenderData.atyp,
+			position: self.inner.RenderData.ulPosition,
+			width:    self.inner.RenderData.dxWidth,
+			height:   self.inner.RenderData.dyHeight,
+			flags:    self.inner.RenderData.dwFlags
+		}
+	}
+
+	pub fn file_data(&self) -> Option<Vec<u8>> {
+		vec_from_varlen(self.inner.FileData)
+	}
+
+	pub fn icon_data(&self) -> Option<Vec<u8>> {
+		vec_from_varlen(self.inner.IconData)
+	}
+}
+
+#[derive(Debug)]
+pub enum TNEFMessageClass {
+	/// E-Mail with a note.
+	EmailNote,
+	/// E-Mail with a read receipt.
+	EmailReadReceipt,
+	/// E-Mail with a non-delivery notification.
+	EmailNonDelivery,
+	/// E-Mail with a positive meeting response.
+	MeetingResponsePositive,
+	/// E-Mail with a negative meeting response.
+	MeetingResponseNegative,
+	/// E-Mail with a tentative meeting response.
+	MeetingResponseTentative,
+	/// E-Mail with a meeting request.
+	MeetingRequest,
+	/// E-Mail with a meeting cancellation.
+	MeetingCancelled,
+	/// Any other non-standard value for the message class.
+	Other(String)
+}
+
+impl From<&str> for TNEFMessageClass {
+	fn from(other: &str) -> Self {
+		match other {
+			"IPM.Microsoft Mail.Note"         => TNEFMessageClass::EmailNote,
+			"IPM.Microsoft Mail.Read Receipt" => TNEFMessageClass::EmailReadReceipt,
+			"IPM.Microsoft Mail.Non-Delivery" => TNEFMessageClass::EmailNonDelivery,
+			"IPM.Microsoft Schedule.MtgRespP" => TNEFMessageClass::MeetingResponsePositive,
+			"IPM.Microsoft Schedule.MtgRespN" => TNEFMessageClass::MeetingResponseNegative,
+			"IPM.Microsoft Schedule.MtgRespA" => TNEFMessageClass::MeetingResponseTentative,
+			"IPM.Microsoft Schedule.MtgReq"   => TNEFMessageClass::MeetingRequest,
+			"IPM.Microsoft Schedule.MtgCncl"  => TNEFMessageClass::MeetingCancelled,
+			_ => TNEFMessageClass::Other(other.into())
+		}
+	}
+}
+
+#[derive(Debug)]
+pub enum TNEFMessageStatus {
+	/// E-Mail read.
+	Read,
+	/// E-Mail modified.
+	Modified,
+	/// E-Mail submitted.
+	Submitted,
+	/// Unsent E-Mail.
+	Unsent,
+	/// E-Mail with an attachement.
+	HasAttachments
+}
+
+impl TryFrom<&str> for TNEFMessageStatus {
+	type Error = TNEFError;
+
+	fn try_from(other: &str) -> Result<Self, Self::Error> {
+		match other {
+			"fmsRead"      => Ok(TNEFMessageStatus::Read),
+			"fmsModified"  => Ok(TNEFMessageStatus::Modified),
+			"fmsSubmitted" => Ok(TNEFMessageStatus::Submitted),
+			"fmsLocal"     => Ok(TNEFMessageStatus::Unsent),
+			"fmsHasAttach" => Ok(TNEFMessageStatus::HasAttachments),
+			_ => Err(TNEFError::UnknownProperty)
+		}
+	}
+}
+
+#[derive(Debug)]
+pub enum TNEFPriority {
+	Low,
+	Normal,
+	High
+}
+
+impl TryFrom<&str> for TNEFPriority {
+	type Error = TNEFError;
+
+	fn try_from(other: &str) -> Result<Self, Self::Error> {
+		match other {
+			"low"    => Ok(TNEFPriority::Low),
+			"normal" => Ok(TNEFPriority::Normal),
+			"high"   => Ok(TNEFPriority::High),
+			_        => Err(TNEFError::UnknownProperty)
+		}
+	}
+}
+
+#[derive(Debug)]
 pub struct TNEFFile {
 	inner: ytnef_sys::TNEFStruct
 }
@@ -120,7 +286,7 @@ impl TNEFFile {
 		let mut inner = MaybeUninit::<ytnef_sys::TNEFStruct>::zeroed();
 
 		let result: i32 = unsafe {
-			let mut inner_ptr = inner.as_mut_ptr();
+			let inner_ptr = inner.as_mut_ptr();
 			ytnef_sys::TNEFInitialize(inner_ptr);
 			(*inner_ptr).IO = io; // insert our custom I/O interface before parsing
 			(*inner_ptr).Debug = 0;
@@ -202,7 +368,7 @@ impl TNEFFile {
 	pub fn date_sent(&self) -> NaiveDateTime {
 		datetime_from_dtr(self.inner.dateSent)
 	}
-	
+
 	pub fn date_received(&self) -> NaiveDateTime {
 		datetime_from_dtr(self.inner.dateReceived)
 	}
@@ -217,16 +383,18 @@ impl TNEFFile {
 
 	pub fn date_end(&self) -> NaiveDateTime {
 		datetime_from_dtr(self.inner.DateEnd)
-	}	
-
-	pub fn message_status(&self) -> String {
-		// FIXME: maybe make this an enum
-		make_safe_string(self.inner.messageStatus.as_ptr())
 	}
 
-	pub fn message_class(&self) -> String {
-		// FIXME: maybe make this an enum
+	pub fn message_status(&self) -> Option<TNEFResult<TNEFMessageStatus>> {
+		Some(make_safe_string(self.inner.messageStatus.as_ptr()))
+			.filter(|status| !status.is_empty())
+			.map(|status| status.as_str().try_into())
+	}
+
+	pub fn message_class(&self) -> TNEFMessageClass {
 		make_safe_string(self.inner.messageClass.as_ptr())
+			.as_str()
+			.into()
 	}
 
 	pub fn message_id(&self) -> String {
@@ -245,9 +413,10 @@ impl TNEFFile {
 		string_from_varlen(self.inner.body)
 	}
 
-	pub fn priority(&self) -> String {
-		// FIXME: make this an enum type
-		make_safe_string(self.inner.priority.as_ptr())
+	pub fn priority(&self) -> TNEFResult<TNEFPriority> {
+		let mut priority_str = make_safe_string(self.inner.priority.as_ptr());
+		priority_str.make_ascii_lowercase();
+		priority_str.as_str().try_into()
 	}
 
 	pub fn attachments(&self) -> Vec<TNEFAttachment> {
@@ -287,8 +456,8 @@ impl TNEFFile {
 	}
 
 	pub fn original_message_class(&self) -> Option<String> {
-		// FIXME: maybe make enum
 		string_from_varlen(self.inner.OriginalMessageClass)
+			.map(|msg_class_str| msg_class_str.as_str().into())
 	}
 
 	pub fn owner(&self) -> Option<String> {
@@ -311,85 +480,6 @@ impl TNEFFile {
 impl Drop for TNEFFile {
 	fn drop(&mut self) {
 		unsafe { ytnef_sys::TNEFFree(&mut self.inner); }
-	}
-}
-
-pub struct TNEFAttachmentRenderData {
-	pub attach_type: u16,
-	pub position: u32,
-	pub width: u16,
-	pub height: u16,
-	pub flags: u32
-}
-
-// So this is my first attempt at creating a C interface library in Rust and
-// I wasn't sure what to do with the linked-list pointers used in this structure.
-// I tried the Box<T> method and realized that wouldn't work because you can't
-// drop the value since drop() borrows self and you can't mutably borrow the inner
-// value from the box. Just decided to copy the structures instead.
-pub struct TNEFAttachment {
-	inner: ytnef_sys::Attachment
-}
-
-impl Default for TNEFAttachment {
-	fn default() -> Self {
-		Self::new()
-	}
-}
-
-impl TNEFAttachment {
-	pub fn new() -> Self {
-		unsafe {
-			let mut inner = MaybeUninit::<ytnef_sys::Attachment>::zeroed();
-			ytnef_sys::TNEFInitAttachment(inner.as_mut_ptr());
-			Self { inner: inner.assume_init() }
-		}
-	}
-
-	/// # Safety
-	///
-	/// 'raw' must be a non-NULL initialized Attachment object. Only pass pointers returned by the
-	/// ytnef_sys API to this function.
-	pub unsafe fn from_raw(raw: *mut ytnef_sys::Attachment) -> Self {
-		Self { inner: raw.read() }
-	}
-
-	pub fn date(&self) -> NaiveDateTime {
-		datetime_from_dtr(self.inner.Date)
-	}
-
-	pub fn title(&self) -> Option<String> {
-		string_from_varlen(self.inner.Title)
-	}
-
-	pub fn create_date(&self) -> NaiveDateTime {
-		datetime_from_dtr(self.inner.CreateDate)
-	}
-
-	pub fn modify_date(&self) -> NaiveDateTime {
-		datetime_from_dtr(self.inner.ModifyDate)
-	}
-
-	pub fn transport_filename(&self) -> Option<String> {
-		string_from_varlen(self.inner.TransportFilename)
-	}
-
-	pub fn render_data(&self) -> TNEFAttachmentRenderData {
-		TNEFAttachmentRenderData {
-			attach_type: self.inner.RenderData.atyp,
-			position: self.inner.RenderData.ulPosition,
-			width:    self.inner.RenderData.dxWidth,
-			height:   self.inner.RenderData.dyHeight,
-			flags:    self.inner.RenderData.dwFlags
-		}
-	}
-
-	pub fn file_data(&self) -> Option<Vec<u8>> {
-		vec_from_varlen(self.inner.FileData)
-	}
-
-	pub fn icon_data(&self) -> Option<Vec<u8>> {
-		vec_from_varlen(self.inner.IconData)
 	}
 }
 
