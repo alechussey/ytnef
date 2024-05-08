@@ -35,18 +35,18 @@ pub fn string_from_varlen(
 }
 
 /// Conveniently convertthe dtr native type fro ytnef to chrono::NaiveDateTime
-pub fn datetime_from_dtr(date: ytnef_sys::dtr) -> NaiveDateTime {
-	let ndate = NaiveDate::from_ymd(
+pub fn datetime_from_dtr(date: ytnef_sys::dtr) -> Option<NaiveDateTime> {
+	let ndate = NaiveDate::from_ymd_opt(
 		date.wYear as i32,
 		date.wMonth as u32,
 		date.wDay as u32
-	);
+	)?;
 
-	let ntime = NaiveTime::from_hms(
+	let ntime = NaiveTime::from_hms_opt(
 		date.wHour as u32,
 		date.wMinute as u32,
 		date.wSecond as u32
-	);
+	)?;
 
-	NaiveDateTime::new(ndate, ntime)
+	Some(NaiveDateTime::new(ndate, ntime))
 }

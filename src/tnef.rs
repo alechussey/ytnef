@@ -98,7 +98,8 @@ impl TNEFAttachment {
 		Self { inner: raw.read() }
 	}
 
-	pub fn date(&self) -> NaiveDateTime {
+	/// Returns None if date is invalid.
+	pub fn date(&self) -> Option<NaiveDateTime> {
 		datetime_from_dtr(self.inner.Date)
 	}
 
@@ -106,11 +107,13 @@ impl TNEFAttachment {
 		string_from_varlen(self.inner.Title)
 	}
 
-	pub fn create_date(&self) -> NaiveDateTime {
+	/// Returns None if date is invalid.
+	pub fn create_date(&self) -> Option<NaiveDateTime> {
 		datetime_from_dtr(self.inner.CreateDate)
 	}
 
-	pub fn modify_date(&self) -> NaiveDateTime {
+	/// Returns None if date is invalid.
+	pub fn modify_date(&self) -> Option<NaiveDateTime> {
 		datetime_from_dtr(self.inner.ModifyDate)
 	}
 
@@ -365,23 +368,28 @@ impl TNEFFile {
 		string_from_varlen(self.inner.subject)
 	}
 
-	pub fn date_sent(&self) -> NaiveDateTime {
+	/// Returns None if date is invalid.
+	pub fn date_sent(&self) -> Option<NaiveDateTime> {
 		datetime_from_dtr(self.inner.dateSent)
 	}
 
-	pub fn date_received(&self) -> NaiveDateTime {
+	/// Returns None if date is invalid.
+	pub fn date_received(&self) -> Option<NaiveDateTime> {
 		datetime_from_dtr(self.inner.dateReceived)
 	}
 
-	pub fn date_modified(&self) -> NaiveDateTime {
+	/// Returns None if date is invalid.
+	pub fn date_modified(&self) -> Option<NaiveDateTime> {
 		datetime_from_dtr(self.inner.dateModified)
 	}
 
-	pub fn date_start(&self) -> NaiveDateTime {
+	/// Returns None if date is invalid.
+	pub fn date_start(&self) -> Option<NaiveDateTime> {
 		datetime_from_dtr(self.inner.DateStart)
 	}
 
-	pub fn date_end(&self) -> NaiveDateTime {
+	/// Returns None if date is invalid.
+	pub fn date_end(&self) -> Option<NaiveDateTime> {
 		datetime_from_dtr(self.inner.DateEnd)
 	}
 
